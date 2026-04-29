@@ -10,7 +10,30 @@ const CustomerLayout = () => {
     const navigate = useNavigate();
     const user = getUser();
     const cartCount = getCartCount();
-    const [searchFocused, setSearchFocused] = React.useState({ focus: false, val: '' });
+    const [searchFocused, setSearchFocused] = React.useState(false);
+    const [searchVal, setSearchVal] = React.useState('');
+    const [suggestions, setSuggestions] = React.useState({ products: [], farmers: [] });
+
+    React.useEffect(() => {
+        if (searchVal.trim().length < 2) {
+            setSuggestions({ products: [], farmers: [] });
+            return;
+        }
+
+        const timer = setTimeout(async () => {
+            try {
+                const res = await fetch(`http://localhost:5001/api/search/suggestions?q=${encodeURIComponent(searchVal)}`);
+                const data = await res.json();
+                if (data.success) {
+                    setSuggestions({ products: data.products, farmers: data.farmers });
+                }
+            } catch (err) {
+                console.error('Suggestion error:', err);
+            }
+        }, 300);
+
+        return () => clearTimeout(timer);
+    }, [searchVal]);
 
     const handleLogout = () => {
         clearUser();
@@ -40,29 +63,58 @@ const CustomerLayout = () => {
                 </div>
 
                 <div style={{ flex: 1, maxWidth: '400px', margin: '0 2rem', position: 'relative' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-color)', padding: '0.6rem 1rem', borderRadius: 'var(--radius-full)', border: searchFocused.focus ? '1px solid var(--primary)' : '1px solid var(--border)', transition: 'all 0.2s' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-color)', padding: '0.6rem 1rem', borderRadius: 'var(--radius-full)', border: searchFocused ? '1px solid var(--primary)' : '1px solid var(--border)', transition: 'all 0.2s' }}>
                         <Search size={18} color="var(--text-muted)" style={{ marginRight: '0.5rem' }} />
                         <input
                             type="text"
+                            value={searchVal}
                             placeholder="Search products, farmers, categories..."
                             style={{ border: 'none', background: 'transparent', outline: 'none', width: '100%' }}
-                            onFocus={() => setSearchFocused({ ...searchFocused, focus: true })}
-                            onBlur={() => setTimeout(() => setSearchFocused({ ...searchFocused, focus: false }), 200)}
-                            onChange={(e) => setSearchFocused({ ...searchFocused, val: e.target.value })}
+                            onFocus={() => setSearchFocused(true)}
+                            onBlur={() => setTimeout(() => setSearchFocused(false), 200)}
+                            onChange={(e) => setSearchVal(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && searchVal.trim()) {
+                                    navigate(`/customer/products?search=${encodeURIComponent(searchVal.trim())}`);
+                                    setSearchFocused(false);
+                                    e.target.blur();
+                                }
+                            }}
                         />
                     </div>
 
-                    {searchFocused.focus && (
-                        <div className="card" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '0.5rem', padding: '1rem', zIndex: 100, boxShadow: 'var(--shadow-lg)' }}>
-                            <div style={{ marginBottom: '1rem' }}>
-                                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Products</div>
-                                <div style={{ padding: '0.5rem', cursor: 'pointer', borderRadius: 'var(--radius-md)' }} className="text-primary hover-bg">Organic Carrots</div>
-                                <div style={{ padding: '0.5rem', cursor: 'pointer', borderRadius: 'var(--radius-md)' }} className="text-primary hover-bg">Fresh Tomatoes</div>
-                            </div>
-                            <div>
-                                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Farmers</div>
-                                <div style={{ padding: '0.5rem', cursor: 'pointer', borderRadius: 'var(--radius-md)' }} className="text-primary hover-bg">Sunny Farm (Kandy)</div>
-                            </div>
+                    {searchFocused && (searchVal.trim().length >= 2) && (suggestions.products.length > 0 || suggestions.farmers.length > 0) && (
+                        <div className="card" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '0.5rem', padding: '0.75rem', zIndex: 100, boxShadow: 'var(--shadow-lg)', animation: 'slideDown 0.2s ease' }}>
+                            {suggestions.products.length > 0 && (
+                                <div style={{ marginBottom: '1rem' }}>
+                                    <div style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.4rem', paddingLeft: '0.5rem' }}>Products</div>
+                                    {suggestions.products.map(p => (
+                                        <div 
+                                            key={p.id} 
+                                            onClick={() => navigate(`/customer/products?search=${encodeURIComponent(p.name)}`)}
+                                            style={{ padding: '0.6rem 0.75rem', cursor: 'pointer', borderRadius: 'var(--radius-md)', fontSize: '0.88rem' }} 
+                                            className="hover-bg"
+                                        >
+                                            {p.name} <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>({p.category})</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            {suggestions.farmers.length > 0 && (
+                                <div>
+                                    <div style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.4rem', paddingLeft: '0.5rem' }}>Farmers</div>
+                                    {suggestions.farmers.map(f => (
+                                        <div 
+                                            key={f.id} 
+                                            onClick={() => navigate(`/customer/products?search=${encodeURIComponent(f.name)}`)}
+                                            style={{ padding: '0.6rem 0.75rem', cursor: 'pointer', borderRadius: 'var(--radius-md)', fontSize: '0.88rem' }} 
+                                            className="hover-bg"
+                                        >
+                                            {f.name} <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{f.farm_location ? `· ${f.farm_location}` : ''}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

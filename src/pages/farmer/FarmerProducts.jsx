@@ -4,12 +4,13 @@ import {
     AlertTriangle, CheckCircle, XCircle, Save, X, Leaf
 } from 'lucide-react';
 import { getUser } from '../../utils/userSession';
+import { AppIcon } from '../../components/Icons';
 
 const API = 'http://localhost:5001';
 
 const CATEGORIES = ['Vegetables', 'Fruits', 'Grains', 'Dairy', 'Herbs', 'Other'];
 const UNITS = ['kg', 'g', 'unit', 'litre', 'bundle'];
-const EMPTY_FORM = { name: '', category: 'Vegetables', unit: 'kg', price: '', description: '', is_organic: false };
+const EMPTY_FORM = { name: '', category: 'Vegetables', unit: 'kg', price: '', description: '', image_url: '', is_organic: false };
 
 /* ─── Status badge ────────────────────────────────────────────────────────── */
 const StatusBadge = ({ qty }) => {
@@ -78,7 +79,15 @@ const FarmerProducts = () => {
     };
     const openEdit = (p) => {
         setEditTarget(p.id);
-        setForm({ name: p.name, category: p.category, unit: p.unit, price: p.price, description: p.description || '', is_organic: !!p.is_organic });
+        setForm({ 
+            name: p.name, 
+            category: p.category, 
+            unit: p.unit, 
+            price: p.price, 
+            description: p.description || '', 
+            image_url: p.image_url || '',
+            is_organic: !!p.is_organic 
+        });
         setFormError('');
         setShowModal(true);
     };
@@ -155,13 +164,13 @@ const FarmerProducts = () => {
             {/* ── Stat cards ─────────────────────────────────────────────── */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1rem', marginBottom: '2rem' }}>
                 {[
-                    { label: 'Total Products',   value: products.length,                              color: 'var(--primary)', icon: '📦' },
-                    { label: 'Out of Stock',      value: outOfStock,                                   color: '#ef4444',       icon: '🚫' },
-                    { label: 'Low Stock',         value: lowStock,                                     color: '#f59e0b',       icon: '⚠️' },
-                    { label: 'Total Inv. Value',  value: `LKR ${totalValue.toLocaleString()}`,         color: '#22c55e',       icon: '💰' },
+                    { label: 'Total Products',   value: products.length,                              color: 'var(--primary)', icon: 'total' },
+                    { label: 'Out of Stock',      value: outOfStock,                                   color: '#ef4444',       icon: 'ban' },
+                    { label: 'Low Stock',         value: lowStock,                                     color: '#f59e0b',       icon: 'warning' },
+                    { label: 'Total Inv. Value',  value: `LKR ${totalValue.toLocaleString()}`,         color: '#22c55e',       icon: 'money' },
                 ].map((s, i) => (
                     <div key={i} className="card" style={{ borderTop: `4px solid ${s.color}`, padding: '1.25rem' }}>
-                        <div style={{ fontSize: '1.4rem', marginBottom: '0.4rem' }}>{s.icon}</div>
+                        <div style={{ marginBottom: '0.4rem' }}><AppIcon name={s.icon} size={28} color={s.color} /></div>
                         <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 500, marginBottom: '0.25rem' }}>{s.label}</div>
                         <div style={{ fontSize: '1.6rem', fontWeight: 800, color: s.color }}>{s.value}</div>
                     </div>
@@ -231,8 +240,12 @@ const FarmerProducts = () => {
                                         <td style={td}><span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{idx + 1}</span></td>
                                         <td style={td}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                                                <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--primary)18', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                    <Package size={16} color="var(--primary)" />
+                                                <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--primary)18', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+                                                    {p.image_url ? (
+                                                        <img src={p.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                    ) : (
+                                                        <Package size={16} color="var(--primary)" />
+                                                    )}
                                                 </div>
                                                 <div>
                                                     <div style={{ fontWeight: 600 }}>{p.name}</div>
@@ -299,15 +312,27 @@ const FarmerProducts = () => {
                                 <label style={labelStyle}>Price (LKR) *</label>
                                 <input type="number" min={0} value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} placeholder="e.g. 350" style={formInput} />
                             </div>
-                            <div style={{ gridColumn: '1 / -1' }}>
+                             <div style={{ gridColumn: '1 / -1' }}>
                                 <label style={labelStyle}>Description</label>
                                 <textarea
                                     value={form.description}
                                     onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
                                     placeholder="Optional – brief description of the product"
-                                    rows={3}
+                                    rows={2}
                                     style={{ ...formInput, resize: 'vertical' }}
                                 />
+                            </div>
+                            <div style={{ gridColumn: '1 / -1' }}>
+                                <label style={labelStyle}>Product Image URL</label>
+                                <input 
+                                    value={form.image_url} 
+                                    onChange={e => setForm(f => ({ ...f, image_url: e.target.value }))} 
+                                    placeholder="Paste an image link (e.g. from Unsplash or Pinterest)" 
+                                    style={formInput} 
+                                />
+                                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                                    This image will represent your product on the customer marketplace.
+                                </p>
                             </div>
                             {/* Organic toggle */}
                             <div style={{ gridColumn: '1 / -1' }}>
@@ -355,7 +380,7 @@ const FarmerProducts = () => {
                 <div style={overlayStyle} onClick={() => setConfirmDelete(null)}>
                     <div style={{ ...modalBox, maxWidth: '380px' }} onClick={e => e.stopPropagation()}>
                         <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-                            <div style={{ fontSize: '3rem', marginBottom: '0.75rem' }}>🗑️</div>
+                            <div style={{ marginBottom: '0.75rem' }}><AppIcon name="delete" size={48} color="#ef4444" /></div>
                             <h3 style={{ marginBottom: '0.5rem', fontWeight: 700 }}>Delete Product?</h3>
                             <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
                                 <strong>{confirmDelete.name}</strong> will be removed from your product list and inventory. This cannot be undone.

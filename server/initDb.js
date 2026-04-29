@@ -42,6 +42,7 @@ export async function initDb() {
         name       VARCHAR(150) NOT NULL,
         phone      VARCHAR(30)  DEFAULT NULL,
         city       VARCHAR(100) DEFAULT NULL,
+        address    VARCHAR(255) DEFAULT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
@@ -58,6 +59,7 @@ export async function initDb() {
         farm_location   VARCHAR(255) DEFAULT NULL,
         farm_size       VARCHAR(100) DEFAULT NULL,
         crops_produced  VARCHAR(255) DEFAULT NULL,
+        address         VARCHAR(255) DEFAULT NULL,
         created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
@@ -90,6 +92,7 @@ export async function initDb() {
         unit        VARCHAR(20)  NOT NULL DEFAULT 'kg',
         price       DECIMAL(10,2) NOT NULL DEFAULT 0.00,
         description TEXT,
+        image_url   TEXT,
         is_organic  TINYINT(1) NOT NULL DEFAULT 0,
         is_active   TINYINT(1) NOT NULL DEFAULT 1,
         created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -101,7 +104,7 @@ export async function initDb() {
     logger.info('Table verified: farmer_products');
 
     // ── safe column migrations (run on existing tables too) ─────────────────
-    // Add is_organic if the column doesn't exist yet
+    // 1. Add is_organic
     const [cols] = await connection.query(`
       SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'farmer_products' AND COLUMN_NAME = 'is_organic'
@@ -111,6 +114,18 @@ export async function initDb() {
         `ALTER TABLE farmer_products ADD COLUMN is_organic TINYINT(1) NOT NULL DEFAULT 0 AFTER description`
       );
       logger.info('Migration: added is_organic column to farmer_products');
+    }
+
+    // 2. Add image_url
+    const [imageCols] = await connection.query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'farmer_products' AND COLUMN_NAME = 'image_url'
+    `);
+    if (imageCols.length === 0) {
+      await connection.query(
+        `ALTER TABLE farmer_products ADD COLUMN image_url TEXT AFTER description`
+      );
+      logger.info('Migration: added image_url column to farmer_products');
     }
 
     // ── farmer_inventory ───────────────────────────────────────────────────
@@ -181,6 +196,17 @@ export async function initDb() {
       `).catch(() => {}) // already exists
     );
     logger.info('Column ensured: users.city');
+    
+    // ── Idempotent: add address to users (customers) ────────────────────────
+    await connection.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS address VARCHAR(255) DEFAULT NULL
+    `).catch(() =>
+      connection.query(`
+        ALTER TABLE users ADD COLUMN address VARCHAR(255) DEFAULT NULL
+      `).catch(() => {})
+    );
+    logger.info('Column ensured: users.address');
 
     // ── Idempotent: add city to driver ──────────────────────────────────────
     await connection.query(`
@@ -192,6 +218,17 @@ export async function initDb() {
       `).catch(() => {})
     );
     logger.info('Column ensured: driver.city');
+
+    // ── Idempotent: add address to farmer ───────────────────────────────────
+    await connection.query(`
+      ALTER TABLE farmer
+      ADD COLUMN IF NOT EXISTS address VARCHAR(255) DEFAULT NULL
+    `).catch(() =>
+      connection.query(`
+        ALTER TABLE farmer ADD COLUMN address VARCHAR(255) DEFAULT NULL
+      `).catch(() => {})
+    );
+    logger.info('Column ensured: farmer.address');
 
     // ── Idempotent: add driver_id + city to orders ──────────────────────────
     await connection.query(`
@@ -228,6 +265,23 @@ export async function initDb() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
     logger.info('Table verified: farmer_notifications');
+
+    // ── driver_notifications ────────────────────────────────────────────────
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS driver_notifications (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        driver_id   INT NOT NULL,
+        sent_by     INT,
+        subject     VARCHAR(255) NOT NULL,
+        message     TEXT NOT NULL,
+        is_urgent   TINYINT(1) NOT NULL DEFAULT 1,
+        is_read     TINYINT(1) NOT NULL DEFAULT 0,
+        created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT fk_dn_driver
+          FOREIGN KEY (driver_id) REFERENCES driver(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+    logger.info('Table verified: driver_notifications');
 
     // ── product_reviews ─────────────────────────────────────────────────────
     await connection.query(`

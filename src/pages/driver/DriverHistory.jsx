@@ -1,0 +1,149 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+    History, Package, CheckCircle, Clock, MapPin, Phone,
+    RefreshCw, AlertTriangle, Navigation, ChevronDown, ChevronUp, User
+} from 'lucide-react';
+import { getUser } from '../../utils/userSession';
+import { AppIcon } from '../../components/Icons';
+
+const API = 'http://localhost:5001';
+
+const STATUS_CONFIG = {
+    Delivered: { color: '#22c55e', bg: '#dcfce7', label: 'Delivered', icon: CheckCircle },
+    Cancelled: { color: '#ef4444', bg: '#fee2e2', label: 'Cancelled', icon: AlertTriangle },
+};
+
+function fmtDate(d) {
+    if (!d) return '—';
+    return new Date(d).toLocaleString('en-LK', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+const DriverHistory = () => {
+    const user = getUser();
+    const [orders, setOrders] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [expanded, setExpanded] = useState({});
+
+    const fetchHistory = useCallback(async () => {
+        if (!user?.id) return;
+        try {
+            setLoading(true);
+            const res = await fetch(`${API}/api/driver/orders?driver_id=${user.id}`);
+            const data = await res.json();
+            if (!data.success) throw new Error(data.message);
+            
+            // Filter only completed/cancelled orders for history
+            const historyOrders = data.orders.filter(o => o.status === 'Delivered' || o.status === 'Cancelled');
+            setOrders(historyOrders);
+            setError('');
+        } catch (err) { setError(err.message); }
+        finally { setLoading(false); }
+    }, [user?.id]);
+
+    useEffect(() => { fetchHistory(); }, [fetchHistory]);
+
+    return (
+        <div style={{ padding: '2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.75rem' }}>
+                <div>
+                    <h1 style={{ fontSize: '1.85rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.2rem' }}>
+                        <History size={26} color="var(--primary)" /> Delivery History
+                    </h1>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: 0 }}>
+                        Past deliveries completed in your region.
+                    </p>
+                </div>
+                <button onClick={fetchHistory} style={ghostBtn}><RefreshCw size={15} /> Refresh</button>
+            </div>
+
+            {error && (
+                <div style={{ padding: '0.75rem 1rem', marginBottom: '1rem', background: '#ef444412', border: '1px solid #ef444430', borderRadius: 8, color: '#ef4444', fontSize: '0.83rem', display: 'flex', gap: 6 }}>
+                    <AlertTriangle size={14} style={{ flexShrink: 0 }} /> {error}
+                </div>
+            )}
+
+            {loading ? (
+                <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <RefreshCw className="spin" size={40} style={{ opacity: 0.15, marginBottom: '1rem' }} />
+                    <p>Loading history…</p>
+                </div>
+            ) : orders.length === 0 ? (
+                <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <History size={52} style={{ opacity: 0.1, marginBottom: '1.25rem' }} />
+                    <h3 style={{ fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.5rem' }}>No history found</h3>
+                    <p style={{ fontSize: '0.88rem' }}>When you complete deliveries, they will appear here.</p>
+                </div>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                    {orders.map(order => {
+                        const cfg = STATUS_CONFIG[order.status] || { color: '#6b7280', bg: '#f3f4f6' };
+                        const Icon = cfg.icon || Package;
+                        return (
+                            <div key={order.id} className="card" style={{ padding: 0, overflow: 'hidden', border: `1.5px solid ${expanded[order.id] ? cfg.color + '44' : 'var(--border)'}` }}>
+                                <div onClick={() => setExpanded(e => ({ ...e, [order.id]: !e[order.id] }))}
+                                    style={{ padding: '1.1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', cursor: 'pointer', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
+                                        <div style={{ width: 38, height: 38, borderRadius: '50%', background: cfg.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <Icon size={18} color={cfg.color} />
+                                        </div>
+                                        <div>
+                                            <div style={{ fontWeight: 800, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                                #ORD-{String(order.id).padStart(4,'0')}
+                                                <span style={{ display: 'inline-block', padding: '2px 9px', borderRadius: 99, fontSize: '0.72rem', fontWeight: 700, background: cfg.bg, color: cfg.color }}>{order.status}</span>
+                                            </div>
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: 2 }}>
+                                                <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><User size={11} />{order.customer_name}</span>
+                                                {order.city && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><MapPin size={11} />{order.city}</span>}
+                                                <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><AppIcon name="package" size={11} /> {order.item_count} item{order.item_count !== 1 ? 's' : ''}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                                        <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontWeight: 900, fontSize: '1.1rem', color: 'var(--primary)' }}>LKR {Number(order.total_amount).toLocaleString()}</div>
+                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{fmtDate(order.created_at)}</div>
+                                        </div>
+                                        {expanded[order.id] ? <ChevronUp size={16} color="var(--text-muted)" /> : <ChevronDown size={16} color="var(--text-muted)" />}
+                                    </div>
+                                </div>
+
+                                {expanded[order.id] && (
+                                    <div style={{ borderTop: '1px solid var(--border)', padding: '1.1rem 1.25rem', background: 'var(--bg-color)', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                                            <div style={{ padding: '0.75rem', background: '#fff', borderRadius: 10, border: '1px solid var(--border)' }}>
+                                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.3rem' }}>Customer</div>
+                                                <div style={{ fontWeight: 700 }}>{order.customer_name}</div>
+                                                {order.customer_phone && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}><Phone size={11} />{order.customer_phone}</div>}
+                                            </div>
+                                            <div style={{ padding: '0.75rem', background: '#fff', borderRadius: 10, border: '1px solid var(--border)' }}>
+                                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.3rem' }}>Delivery Address</div>
+                                                <div style={{ fontWeight: 600, fontSize: '0.88rem', display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+                                                    <MapPin size={13} style={{ flexShrink: 0, marginTop: 2, color: 'var(--primary)' }} />
+                                                    {order.delivery_address || '—'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.85rem' }}>
+                                            <span style={{ fontWeight: 600 }}>Payment Mode:</span>
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '2px 9px', borderRadius: 99, fontSize: '0.75rem', fontWeight: 700, background: order.payment_status === 'Paid' ? '#22c55e18' : '#f59e0b18', color: order.payment_status === 'Paid' ? '#15803d' : '#b45309' }}>
+                                                <AppIcon name={order.payment_method} size={12} /> {order.payment_status}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: '0.75rem', textAlign: 'right' }}>
+                Showing {orders.length} completed deliveries
+            </p>
+        </div>
+    );
+};
+
+const ghostBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '0.55rem 1.1rem', borderRadius: 8, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' };
+
+export default DriverHistory;

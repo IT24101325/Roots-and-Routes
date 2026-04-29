@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { getUser, clearUser } from '../utils/userSession';
 import PageTransition from '../components/PageTransition';
 import {
-    LayoutDashboard,
     Truck,
     History,
     MapPin,
@@ -14,10 +13,32 @@ import {
     Bell
 } from 'lucide-react';
 
+const API = 'http://localhost:5001';
+
 const DriverLayout = () => {
     const [collapsed, setCollapsed] = useState(false);
+    const [unreadCount, setUnreadCount] = useState(0);
     const navigate = useNavigate();
     const user = getUser();
+
+    useEffect(() => {
+        const fetchUnreadCount = async () => {
+            if (!user?.id) return;
+            try {
+                const res = await fetch(`${API}/api/driver/notifications?driver_id=${user.id}`);
+                const data = await res.json();
+                if (data.success) {
+                    setUnreadCount(data.unreadCount || 0);
+                }
+            } catch (err) {
+                console.error('Error fetching unread count:', err);
+            }
+        };
+
+        fetchUnreadCount();
+        const interval = setInterval(fetchUnreadCount, 30000); // Poll every 30s
+        return () => clearInterval(interval);
+    }, [user?.id]);
 
     const handleLogout = () => {
         clearUser();
@@ -25,9 +46,9 @@ const DriverLayout = () => {
     };
 
     const navItems = [
-        { path: '/driver/dashboard', name: 'Dashboard', icon: LayoutDashboard },
         { path: '/driver/deliveries', name: 'My Deliveries', icon: Truck },
         { path: '/driver/history', name: 'Delivery History', icon: History },
+        { path: '/driver/notifications', name: 'Notifications', icon: Bell },
     ];
 
     return (
@@ -56,7 +77,24 @@ const DriverLayout = () => {
                             title={collapsed ? item.name : undefined}
                         >
                             <item.icon size={20} className="flex-shrink-0" />
-                            {!collapsed && <span style={{ whiteSpace: 'nowrap' }}>{item.name}</span>}
+                            {!collapsed && (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                                    <span style={{ whiteSpace: 'nowrap' }}>{item.name}</span>
+                                    {item.name === 'Notifications' && unreadCount > 0 && (
+                                        <span style={{ 
+                                            backgroundColor: 'var(--danger)', 
+                                            color: 'white', 
+                                            borderRadius: '99px', 
+                                            padding: '2px 8px', 
+                                            fontSize: '0.7rem', 
+                                            fontWeight: 'bold',
+                                            marginLeft: 'auto'
+                                        }}>
+                                            {unreadCount}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
                         </NavLink>
                     ))}
                 </div>
@@ -78,8 +116,31 @@ const DriverLayout = () => {
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                        <div style={{ position: 'relative', cursor: 'pointer' }}>
+                        <div 
+                            style={{ position: 'relative', cursor: 'pointer' }}
+                            onClick={() => navigate('/driver/notifications')}
+                        >
                             <Bell size={24} color="var(--text-muted)" />
+                            {unreadCount > 0 && (
+                                <div style={{ 
+                                    position: 'absolute', 
+                                    top: -5, 
+                                    right: -5, 
+                                    minWidth: 18, 
+                                    height: 18, 
+                                    backgroundColor: 'var(--danger)', 
+                                    color: 'white', 
+                                    borderRadius: '50%', 
+                                    border: '2px solid white',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: '0.65rem',
+                                    fontWeight: 'bold'
+                                }}>
+                                    {unreadCount > 9 ? '9+' : unreadCount}
+                                </div>
+                            )}
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

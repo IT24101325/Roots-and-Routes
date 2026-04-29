@@ -4,6 +4,7 @@ import {
     XCircle, Save, RefreshCw, Calendar, Clock
 } from 'lucide-react';
 import { getUser } from '../../utils/userSession';
+import { AppIcon } from '../../components/Icons';
 
 const API = 'http://localhost:5001';
 const CATEGORIES = ['Vegetables', 'Fruits', 'Grains', 'Dairy', 'Herbs', 'Other'];
@@ -14,11 +15,11 @@ const StatusBadge = ({ qty, expiryDate }) => {
         const exp = new Date(expiryDate);
         const today = new Date();
         const daysLeft = Math.ceil((exp - today) / (1000 * 60 * 60 * 24));
-        if (daysLeft <= 0) return <span style={badge('#9333ea')}>🕒 Expired</span>;
-        if (daysLeft <= 3) return <span style={badge('#f59e0b')}>⏰ Expiring Soon</span>;
+        if (daysLeft <= 0) return <span style={badge('#9333ea')}>Expired</span>;
+        if (daysLeft <= 3) return <span style={badge('#f59e0b')}>Expiring Soon</span>;
     }
     if (Number(qty) === 0) return <span style={badge('#ef4444')}><XCircle size={12} /> Out of Stock</span>;
-    if (Number(qty) < 15)  return <span style={badge('#f59e0b')}><AlertTriangle size={12} /> Low Stock</span>;
+    if (Number(qty) < 15) return <span style={badge('#f59e0b')}><AlertTriangle size={12} /> Low Stock</span>;
     return <span style={badge('#22c55e')}><CheckCircle size={12} /> Active</span>;
 };
 function badge(color) {
@@ -30,14 +31,15 @@ const FarmerInventory = () => {
     const user = getUser();
     const farmerId = user?.id;
 
-    const [inventory, setInventory]   = useState([]);
-    const [edits, setEdits]           = useState({});      // { [inventoryId]: { quantity, harvest_date, expiry_date } }
-    const [loading, setLoading]       = useState(true);
-    const [error, setError]           = useState('');
-    const [savingId, setSavingId]     = useState(null);
-    const [savedId, setSavedId]       = useState(null);
-    const [search, setSearch]         = useState('');
-    const [filterCat, setFilterCat]   = useState('All');
+    const [inventory, setInventory] = useState([]);
+    const [edits, setEdits] = useState({});      // { [inventoryId]: { quantity, harvest_date, expiry_date } }
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [savingId, setSavingId] = useState(null);
+    const [savedId, setSavedId] = useState(null);
+    const [search, setSearch] = useState('');
+    const [filterCat, setFilterCat] = useState('All');
+    const [fieldErrors, setFieldErrors] = useState({}); // { [invId]: { harvest_date: '', expiry_date: '', quantity: '' } }
 
     /* ── fetch ── */
     const fetchInventory = useCallback(async () => {
@@ -54,7 +56,7 @@ const FarmerInventory = () => {
                 seedEdits[item.inventory_id] = {
                     quantity: item.quantity,
                     harvest_date: item.harvest_date ? item.harvest_date.split('T')[0] : '',
-                    expiry_date:  item.expiry_date  ? item.expiry_date.split('T')[0]  : '',
+                    expiry_date: item.expiry_date ? item.expiry_date.split('T')[0] : '',
                 };
             });
             setEdits(seedEdits);
@@ -71,25 +73,52 @@ const FarmerInventory = () => {
     /* ── helper: get editable field value ── */
     const getField = (invId, field) => edits[invId]?.[field] ?? '';
 
-    const setField = (invId, field, value) =>
+    const setField = (invId, field, value) => {
         setEdits(prev => ({ ...prev, [invId]: { ...prev[invId], [field]: value } }));
+        // Clear error when user types
+        if (fieldErrors[invId]?.[field]) {
+            setFieldErrors(prev => ({
+                ...prev,
+                [invId]: { ...prev[invId], [field]: '' }
+            }));
+        }
+    };
 
     /* ── save a single row ── */
     const handleSave = async (invId) => {
         const row = edits[invId];
+        const newErrors = { quantity: '', harvest_date: '', expiry_date: '' };
+        let hasError = false;
+
         if (!row || row.quantity === '' || Number(row.quantity) < 0) {
-            alert('Enter a valid quantity (≥ 0).');
-            return;
+            newErrors.quantity = 'Enter a valid quantity (≥ 0)';
+            hasError = true;
         }
+
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        if (row.harvest_date && row.harvest_date > todayStr) {
+            newErrors.harvest_date = 'Date cannot be in the future';
+            hasError = true;
+        }
+
+        if (row.expiry_date && row.expiry_date <= todayStr) {
+            newErrors.expiry_date = 'Date must be in the future';
+            hasError = true;
+        }
+
+        setFieldErrors(prev => ({ ...prev, [invId]: newErrors }));
+        if (hasError) return;
+
         setSavingId(invId);
         try {
             const res = await fetch(`${API}/api/farmer/inventory/${invId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    quantity:     Number(row.quantity),
+                    quantity: Number(row.quantity),
                     harvest_date: row.harvest_date || null,
-                    expiry_date:  row.expiry_date  || null,
+                    expiry_date: row.expiry_date || null,
                 }),
             });
             const data = await res.json();
@@ -110,9 +139,9 @@ const FarmerInventory = () => {
     };
 
     /* ── derived stats ── */
-    const totalValue  = inventory.reduce((s, i) => s + Number(i.price) * Number(i.quantity), 0);
-    const outOfStock  = inventory.filter(i => Number(i.quantity) === 0).length;
-    const lowStock    = inventory.filter(i => Number(i.quantity) > 0 && Number(i.quantity) < 15).length;
+    const totalValue = inventory.reduce((s, i) => s + Number(i.price) * Number(i.quantity), 0);
+    const outOfStock = inventory.filter(i => Number(i.quantity) === 0).length;
+    const lowStock = inventory.filter(i => Number(i.quantity) > 0 && Number(i.quantity) < 15).length;
 
     /* ── filtered view ── */
     const visible = inventory.filter(p => {
@@ -143,13 +172,13 @@ const FarmerInventory = () => {
             {/* ── Stat cards ─────────────────────────────────────────────── */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1rem', marginBottom: '2rem' }}>
                 {[
-                    { label: 'Total Products',  value: inventory.length,                     color: 'var(--primary)', icon: '📦' },
-                    { label: 'Out of Stock',     value: outOfStock,                           color: '#ef4444',        icon: '🚫' },
-                    { label: 'Low Stock',        value: lowStock,                             color: '#f59e0b',        icon: '⚠️' },
-                    { label: 'Inventory Value',  value: `LKR ${totalValue.toLocaleString()}`, color: '#22c55e',        icon: '💰' },
+                    { label: 'Total Products', value: inventory.length, color: 'var(--primary)', icon: 'total' },
+                    { label: 'Out of Stock', value: outOfStock, color: '#ef4444', icon: 'ban' },
+                    { label: 'Low Stock', value: lowStock, color: '#f59e0b', icon: 'warning' },
+                    { label: 'Inventory Value', value: `LKR ${totalValue.toLocaleString()}`, color: '#22c55e', icon: 'money' },
                 ].map((s, i) => (
                     <div key={i} className="card" style={{ borderTop: `4px solid ${s.color}`, padding: '1.25rem' }}>
-                        <div style={{ fontSize: '1.4rem', marginBottom: '0.4rem' }}>{s.icon}</div>
+                        <div style={{ marginBottom: '0.4rem' }}><AppIcon name={s.icon} size={28} color={s.color} /></div>
                         <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 500, marginBottom: '0.25rem' }}>{s.label}</div>
                         <div style={{ fontSize: '1.6rem', fontWeight: 800, color: s.color }}>{s.value}</div>
                     </div>
@@ -223,8 +252,12 @@ const FarmerInventory = () => {
                                             {/* Product name */}
                                             <td style={td}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                                                    <div style={{ width: 34, height: 34, borderRadius: 8, background: 'var(--primary)15', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                        <Package size={15} color="var(--primary)" />
+                                                    <div style={{ width: 34, height: 34, borderRadius: 8, background: 'var(--primary)15', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+                                                        {item.image_url ? (
+                                                            <img src={item.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                        ) : (
+                                                            <Package size={15} color="var(--primary)" />
+                                                        )}
                                                     </div>
                                                     <span style={{ fontWeight: 600 }}>{item.name}</span>
                                                 </div>
@@ -255,6 +288,7 @@ const FarmerInventory = () => {
                                                         style={qtyBtn}>+</button>
                                                     <span style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>{item.unit}</span>
                                                 </div>
+                                                {fieldErrors[invId]?.quantity && <div style={errorMsg}>{fieldErrors[invId].quantity}</div>}
                                             </td>
 
                                             {/* Harvest date */}
@@ -265,9 +299,10 @@ const FarmerInventory = () => {
                                                         type="date"
                                                         value={getField(invId, 'harvest_date')}
                                                         onChange={e => setField(invId, 'harvest_date', e.target.value)}
-                                                        style={{ ...inputStyle, paddingLeft: '1.8rem', width: '150px', fontSize: '0.82rem' }}
+                                                        style={{ ...inputStyle, paddingLeft: '1.8rem', width: '150px', fontSize: '0.82rem', borderColor: fieldErrors[invId]?.harvest_date ? '#ef4444' : 'var(--border)' }}
                                                     />
                                                 </div>
+                                                {fieldErrors[invId]?.harvest_date && <div style={errorMsg}>{fieldErrors[invId].harvest_date}</div>}
                                             </td>
 
                                             {/* Expiry date */}
@@ -278,9 +313,10 @@ const FarmerInventory = () => {
                                                         type="date"
                                                         value={getField(invId, 'expiry_date')}
                                                         onChange={e => setField(invId, 'expiry_date', e.target.value)}
-                                                        style={{ ...inputStyle, paddingLeft: '1.8rem', width: '150px', fontSize: '0.82rem' }}
+                                                        style={{ ...inputStyle, paddingLeft: '1.8rem', width: '150px', fontSize: '0.82rem', borderColor: fieldErrors[invId]?.expiry_date ? '#ef4444' : 'var(--border)' }}
                                                     />
                                                 </div>
+                                                {fieldErrors[invId]?.expiry_date && <div style={errorMsg}>{fieldErrors[invId].expiry_date}</div>}
                                             </td>
 
                                             <td style={td}><StatusBadge qty={qty} expiryDate={getField(invId, 'expiry_date') || item.expiry_date} /></td>
@@ -325,5 +361,6 @@ const catPill = { display: 'inline-block', padding: '3px 10px', borderRadius: 99
 const qtyBtn = { width: 28, height: 28, borderRadius: 7, border: '1.5px solid var(--border)', background: 'var(--bg-color)', cursor: 'pointer', fontWeight: 700, fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-main)', flexShrink: 0 };
 const ghostBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '0.6rem 1.3rem', borderRadius: 9, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer' };
 const inputStyle = { width: '100%', padding: '0.5rem 0.75rem', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--white)', color: 'var(--text-main)', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' };
+const errorMsg = { color: '#ef4444', fontSize: '0.68rem', marginTop: 4, fontWeight: 600, maxWidth: '150px', lineHeight: 1.2 };
 
 export default FarmerInventory;

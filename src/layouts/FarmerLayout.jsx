@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { getUser, clearUser, getInitials } from '../utils/userSession';
 import PageTransition from '../components/PageTransition';
@@ -17,13 +17,44 @@ import {
     Boxes
 } from 'lucide-react';
 
+const API = 'http://localhost:5001';
+
 const FarmerLayout = () => {
     const [collapsed, setCollapsed] = useState(false);
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [badges, setBadges] = useState({ sales: 0, reviews: 0 });
     const navigate = useNavigate();
     const user = getUser();
     const farmerName = user?.name || 'Farmer';
     const farmLabel = user?.farm_location || user?.crops_produced || 'My Farm';
     const initials = getInitials(farmerName);
+
+    useEffect(() => {
+        const fetchCounts = async () => {
+            if (!user?.id) return;
+            try {
+                // Fetch unread notifications
+                const notifRes = await fetch(`${API}/api/farmer/notifications?farmer_id=${user.id}`);
+                const notifData = await notifRes.json();
+                if (notifData.success) {
+                    setUnreadCount(notifData.unreadCount || 0);
+                }
+
+                // Fetch sidebar badges
+                const badgeRes = await fetch(`${API}/api/farmer/sidebar-badges?farmer_id=${user.id}`);
+                const badgeData = await badgeRes.json();
+                if (badgeData.success) {
+                    setBadges(badgeData.badges);
+                }
+            } catch (err) {
+                console.error('Error fetching farmer counts:', err);
+            }
+        };
+
+        fetchCounts();
+        const interval = setInterval(fetchCounts, 30000); // Poll every 30s
+        return () => clearInterval(interval);
+    }, [user?.id]);
 
     const handleLogout = () => {
         clearUser();
@@ -65,7 +96,14 @@ const FarmerLayout = () => {
                             title={collapsed ? item.name : undefined}
                         >
                             <item.icon size={20} className="flex-shrink-0" />
-                            {!collapsed && <span style={{ whiteSpace: 'nowrap' }}>{item.name}</span>}
+                            {!collapsed && (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                                    <span style={{ whiteSpace: 'nowrap' }}>{item.name}</span>
+                                    {item.name === 'Notifications' && unreadCount > 0 && (
+                                        <span style={badgeStyle}>{unreadCount}</span>
+                                    )}
+                                </div>
+                            )}
                         </NavLink>
                     ))}
                 </div>
@@ -87,12 +125,24 @@ const FarmerLayout = () => {
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                        <div style={{ position: 'relative', cursor: 'pointer' }}>
+                        <div 
+                            style={{ position: 'relative', cursor: 'pointer' }}
+                            onClick={() => navigate('/farmer/notifications')}
+                        >
                             <Bell size={24} color="var(--text-muted)" />
-                            <div style={{ position: 'absolute', top: -2, right: -2, width: 10, height: 10, backgroundColor: 'var(--danger)', borderRadius: '50%', border: '2px solid white' }}></div>
+                            {unreadCount > 0 && (
+                                <div style={topBadgeStyle}>
+                                    {unreadCount > 9 ? '9+' : unreadCount}
+                                </div>
+                            )}
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div 
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', padding: '0.5rem', borderRadius: '8px', transition: 'background 0.2s' }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.05)'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                            onClick={() => navigate('/farmer/profile')}
+                        >
                             <div style={{ width: 36, height: 36, borderRadius: '50%', backgroundColor: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
                                 {initials}
                             </div>
@@ -113,6 +163,33 @@ const FarmerLayout = () => {
             </div>
         </div>
     );
+};
+
+const badgeStyle = { 
+    backgroundColor: 'var(--danger)', 
+    color: 'white', 
+    borderRadius: '99px', 
+    padding: '2px 8px', 
+    fontSize: '0.7rem', 
+    fontWeight: 'bold',
+    marginLeft: 'auto'
+};
+
+const topBadgeStyle = { 
+    position: 'absolute', 
+    top: -5, 
+    right: -5, 
+    minWidth: 18, 
+    height: 18, 
+    backgroundColor: 'var(--danger)', 
+    color: 'white', 
+    borderRadius: '50%', 
+    border: '2px solid white',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '0.65rem',
+    fontWeight: 'bold'
 };
 
 export default FarmerLayout;

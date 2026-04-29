@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import PageTransition from '../components/PageTransition';
 import {
@@ -10,8 +10,6 @@ import {
     Truck,
     BarChart,
     Star,
-    Settings,
-    Bell,
     Menu,
     LogOut,
     Leaf,
@@ -19,9 +17,44 @@ import {
     MessageSquare
 } from 'lucide-react';
 
+const Badge = ({ count }) => (
+    <span style={{ 
+        backgroundColor: 'var(--danger)', 
+        color: 'white', 
+        borderRadius: '99px', 
+        padding: '2px 8px', 
+        fontSize: '0.7rem', 
+        fontWeight: 'bold',
+        marginLeft: 'auto'
+    }}>
+        {count}
+    </span>
+);
+
+const API = 'http://localhost:5001';
+
 const AdminLayout = () => {
     const [collapsed, setCollapsed] = useState(false);
+    const [badges, setBadges] = useState({ orders: 0, disputes: 0, reviews: 0 });
     const navigate = useNavigate();
+
+    useEffect(() => {
+        const fetchBadges = async () => {
+            try {
+                const res = await fetch(`${API}/api/admin/sidebar-badges`);
+                const data = await res.json();
+                if (data.success) {
+                    setBadges(data.badges);
+                }
+            } catch (err) {
+                console.error('Error fetching admin badges:', err);
+            }
+        };
+
+        fetchBadges();
+        const interval = setInterval(fetchBadges, 30000); // Poll every 30s
+        return () => clearInterval(interval);
+    }, []);
 
     const handleLogout = () => {
         navigate('/login');
@@ -33,12 +66,11 @@ const AdminLayout = () => {
         { path: '/admin/orders', name: 'Order Management', icon: ShoppingCart },
         { path: '/admin/payments', name: 'Payment Management', icon: CreditCard },
         { path: '/admin/seller-contact', name: 'Seller Contact', icon: MessageSquare },
+        { path: '/admin/driver-contact', name: 'Driver Contact', icon: Truck },
         { path: '/admin/disputes', name: 'Dispute Management', icon: Scale },
         { path: '/admin/deliveries', name: 'Delivery Management', icon: Truck },
         { path: '/admin/analytics', name: 'Analytics & Reports', icon: BarChart },
         { path: '/admin/reviews', name: 'Review Management', icon: Star },
-        { path: '/admin/settings', name: 'System Settings', icon: Settings },
-        { path: '/admin/notifications', name: 'Notifications', icon: Bell },
     ];
 
     return (
@@ -67,7 +99,11 @@ const AdminLayout = () => {
                             title={collapsed ? item.name : undefined}
                         >
                             <item.icon size={20} className="flex-shrink-0" />
-                            {!collapsed && <span style={{ whiteSpace: 'nowrap' }}>{item.name}</span>}
+                            {!collapsed && (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                                    <span style={{ whiteSpace: 'nowrap' }}>{item.name}</span>
+                                </div>
+                            )}
                         </NavLink>
                     ))}
                 </div>
@@ -90,11 +126,6 @@ const AdminLayout = () => {
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                        <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => navigate('/admin/notifications')}>
-                            <Bell size={24} color="var(--text-muted)" />
-                            <div style={{ position: 'absolute', top: -2, right: -2, width: 10, height: 10, backgroundColor: 'var(--danger)', borderRadius: '50%', border: '2px solid white' }}></div>
-                        </div>
-
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                             <div style={{ width: 36, height: 36, borderRadius: '50%', backgroundColor: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
                                 A

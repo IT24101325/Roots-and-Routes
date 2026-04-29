@@ -4,7 +4,6 @@ import dotenv from 'dotenv';
 import pool from './db.js';
 import logger, { requestLogger } from './logger.js';
 import { initDb } from './initDb.js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
 dotenv.config();
 
@@ -116,7 +115,7 @@ app.post('/api/login', async (req, res) => {
 app.post('/api/register', async (req, res) => {
   let connection;
   try {
-    const { email, password, firstName, lastName, phone, city, userType } = req.body;
+    const { email, password, firstName, lastName, phone, city, address, userType, licenseNumber, vehicleNumber, vehicleType } = req.body;
     if (!email || !password || !firstName || !lastName || !phone || !userType) {
       return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
@@ -135,18 +134,18 @@ app.post('/api/register', async (req, res) => {
     const normalizedCity = city ? city.trim() : null;
     if (userType === 'customer') {
       await connection.query(
-        `INSERT INTO users (email, password, name, phone, city) VALUES (?, ?, ?, ?, ?)`,
-        [email, password, name, phone, normalizedCity]
+        `INSERT INTO users (email, password, name, phone, city, address) VALUES (?, ?, ?, ?, ?, ?)`,
+        [email, password, name, phone, normalizedCity, address || null]
       );
     } else if (userType === 'farmer') {
       await connection.query(
-        `INSERT INTO farmer (email, password, name, phone) VALUES (?, ?, ?, ?)`,
-        [email, password, name, phone]
+        `INSERT INTO farmer (email, password, name, phone, address) VALUES (?, ?, ?, ?, ?)`,
+        [email, password, name, phone, address || null]
       );
     } else if (userType === 'driver') {
       await connection.query(
-        `INSERT INTO driver (email, password, name, phone, city) VALUES (?, ?, ?, ?, ?)`,
-        [email, password, name, phone, normalizedCity]
+        `INSERT INTO driver (email, password, name, phone, city, license_number, vehicle_number, vehicle_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [email, password, name, phone, normalizedCity, licenseNumber || null, vehicleNumber || null, vehicleType || null]
       );
     }
     logger.info(`New ${userType} registered: ${email} (city: ${normalizedCity})`);
@@ -173,11 +172,11 @@ app.get('/api/admin/users', async (req, res) => {
     }
     connection = await pool.getConnection();
     const [rows] = await connection.query(`
-      SELECT id, name, email, phone, 'farmer' AS role, 'Active' AS status FROM farmer
+      SELECT id, name, email, phone, address, 'farmer' AS role, 'Active' AS status FROM farmer
       UNION ALL
-      SELECT id, name, email, phone, 'user'   AS role, 'Active' AS status FROM users
+      SELECT id, name, email, phone, address, 'user'   AS role, 'Active' AS status FROM users
       UNION ALL
-      SELECT id, name, email, phone, 'driver' AS role, 'Active' AS status FROM driver
+      SELECT id, name, email, phone, NULL AS address, 'driver' AS role, 'Active' AS status FROM driver
     `);
     const normalizedUsers = rows
       .map(u => ({ ...u, userId: `${u.role.toUpperCase()}-${String(u.id).padStart(3, '0')}` }))
@@ -200,7 +199,7 @@ app.get('/api/admin/users', async (req, res) => {
 app.post('/api/admin/users', async (req, res) => {
   let connection;
   try {
-    const { role, email, password, firstName, lastName, phone, farmLocation, farmSize, cropsProduced, licenseNumber, vehicleNumber, vehicleType } = req.body;
+    const { role, email, password, firstName, lastName, phone, city, address, farmLocation, farmSize, cropsProduced, licenseNumber, vehicleNumber, vehicleType } = req.body;
     if (!role || !email || !password || !firstName || !lastName || !phone) {
       return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
@@ -215,11 +214,14 @@ app.post('/api/admin/users', async (req, res) => {
       return res.status(409).json({ success: false, message: 'Email already exists for this role' });
     }
     if (role === 'user') {
-      await connection.query('INSERT INTO users (email, password, name, phone) VALUES (?, ?, ?, ?)', [email, password, name, phone]);
+      await connection.query(
+        'INSERT INTO users (email, password, name, phone, city, address) VALUES (?, ?, ?, ?, ?, ?)', 
+        [email, password, name, phone, city || null, address || null]
+      );
     } else if (role === 'farmer') {
       await connection.query(
-        'INSERT INTO farmer (email, password, name, phone, farm_location, farm_size, crops_produced) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [email, password, name, phone, farmLocation || null, farmSize || null, cropsProduced || null]
+        'INSERT INTO farmer (email, password, name, phone, address, farm_location, farm_size, crops_produced) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [email, password, name, phone, address || null, farmLocation || null, farmSize || null, cropsProduced || null]
       );
     } else if (role === 'driver') {
       await connection.query(
@@ -268,15 +270,15 @@ app.get('/api/farmer/products', async (req, res) => {
 app.post('/api/farmer/products', async (req, res) => {
   let connection;
   try {
-    const { farmer_id, name, category, unit, price, description, is_organic } = req.body;
+    const { farmer_id, name, category, unit, price, description, image_url, is_organic } = req.body;
     if (!farmer_id || !name || price === undefined) {
       return res.status(400).json({ success: false, message: 'farmer_id, name and price are required' });
     }
     connection = await pool.getConnection();
     const [result] = await connection.query(
-      `INSERT INTO farmer_products (farmer_id, name, category, unit, price, description, is_organic)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [farmer_id, name, category || 'General', unit || 'kg', price, description || null, is_organic ? 1 : 0]
+      `INSERT INTO farmer_products (farmer_id, name, category, unit, price, description, image_url, is_organic)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [farmer_id, name, category || 'General', unit || 'kg', price, description || null, image_url || null, is_organic ? 1 : 0]
     );
     const productId = result.insertId;
     // seed an inventory row with qty=0
@@ -298,14 +300,14 @@ app.put('/api/farmer/products/:id', async (req, res) => {
   let connection;
   try {
     const { id } = req.params;
-    const { name, category, unit, price, description, is_organic } = req.body;
+    const { name, category, unit, price, description, image_url, is_organic } = req.body;
     if (!name || price === undefined) {
       return res.status(400).json({ success: false, message: 'name and price are required' });
     }
     connection = await pool.getConnection();
     await connection.query(
-      `UPDATE farmer_products SET name=?, category=?, unit=?, price=?, description=?, is_organic=? WHERE id=?`,
-      [name, category || 'General', unit || 'kg', price, description || null, is_organic ? 1 : 0, id]
+      `UPDATE farmer_products SET name=?, category=?, unit=?, price=?, description=?, image_url=?, is_organic=? WHERE id=?`,
+      [name, category || 'General', unit || 'kg', price, description || null, image_url || null, is_organic ? 1 : 0, id]
     );
     logger.info(`Product ${id} updated`);
     res.json({ success: true, message: 'Product updated' });
@@ -360,7 +362,7 @@ app.get('/api/products', async (req, res) => {
 
     connection = await pool.getConnection();
     const [rows] = await connection.query(
-      `SELECT fp.id, fp.name, fp.category, fp.unit, fp.price, fp.description, fp.is_organic,
+      `SELECT fp.id, fp.name, fp.category, fp.unit, fp.price, fp.description, fp.image_url, fp.is_organic,
               COALESCE(fi.quantity, 0) AS quantity,
               fi.harvest_date, fi.expiry_date,
               f.name AS farmer_name, f.id AS farmer_id, f.farm_location
@@ -389,7 +391,7 @@ app.get('/api/products/random', async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 8, 20);
     connection = await pool.getConnection();
     const [rows] = await connection.query(
-      `SELECT fp.id, fp.name, fp.category, fp.unit, fp.price, fp.is_organic,
+      `SELECT fp.id, fp.name, fp.category, fp.unit, fp.price, fp.is_organic, fp.image_url,
               COALESCE(fi.quantity, 0) AS quantity,
               fi.harvest_date, fi.expiry_date,
               f.name AS farmer_name, f.id AS farmer_id, f.farm_location
@@ -410,6 +412,43 @@ app.get('/api/products/random', async (req, res) => {
 });
 
 /**
+ * GET /api/search/suggestions?q=...
+ * Real-time search suggestions for products and farmers
+ */
+app.get('/api/search/suggestions', async (req, res) => {
+  let connection;
+  try {
+    const { q } = req.query;
+    if (!q || q.trim().length < 2) {
+      return res.json({ success: true, products: [], farmers: [] });
+    }
+    connection = await pool.getConnection();
+    
+    // Search products
+    const [products] = await connection.query(
+      `SELECT id, name, category FROM farmer_products 
+       WHERE is_active = 1 AND name LIKE ? 
+       ORDER BY name ASC LIMIT 5`,
+      [`%${q}%`]
+    );
+
+    // Search farmers
+    const [farmers] = await connection.query(
+      `SELECT id, name, farm_location FROM farmer 
+       WHERE name LIKE ? 
+       ORDER BY name ASC LIMIT 3`,
+      [`%${q}%`]
+    );
+
+    res.json({ success: true, products, farmers });
+  } catch (error) {
+    handleError(res, error, 'GET /api/search/suggestions');
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+/**
  * GET /api/products/:id  – single product detail with full inventory info
  */
 app.get('/api/products/:id', async (req, res) => {
@@ -417,7 +456,7 @@ app.get('/api/products/:id', async (req, res) => {
   try {
     connection = await pool.getConnection();
     const [rows] = await connection.query(
-      `SELECT fp.id, fp.name, fp.category, fp.unit, fp.price, fp.description, fp.is_organic,
+      `SELECT fp.id, fp.name, fp.category, fp.unit, fp.price, fp.description, fp.image_url, fp.is_organic,
               COALESCE(fi.quantity, 0)  AS quantity,
               fi.harvest_date, fi.expiry_date,
               f.name AS farmer_name, f.id AS farmer_id, f.farm_location, f.phone
@@ -634,7 +673,7 @@ app.get('/api/customer/orders', async (req, res) => {
     // For each order fetch its items
     for (const order of orders) {
       const [items] = await connection.query(
-        `SELECT oi.*, fp.name AS product_name, fp.unit, fp.category, f.name AS farmer_name
+        `SELECT oi.*, fp.name AS product_name, fp.unit, fp.category, fp.image_url, f.name AS farmer_name
          FROM order_items oi
          JOIN farmer_products fp ON fp.id = oi.product_id
          JOIN farmer f ON f.id = oi.farmer_id
@@ -663,7 +702,7 @@ app.get('/api/farmer/orders', async (req, res) => {
     const [rows] = await connection.query(
       `SELECT o.id AS order_id, o.status, o.payment_method, o.payment_status, o.created_at,
               oi.quantity, oi.unit_price, oi.subtotal,
-              fp.name AS product_name, fp.unit, fp.category,
+              fp.name AS product_name, fp.unit, fp.category, fp.image_url,
               u.name AS customer_name, u.email AS customer_email
        FROM order_items oi
        JOIN orders          o  ON o.id  = oi.order_id
@@ -701,6 +740,7 @@ app.get('/api/farmer/inventory', async (req, res) => {
               fp.category,
               fp.unit,
               fp.price,
+              fp.image_url,
               fi.quantity,
               fi.harvest_date,
               fi.expiry_date,
@@ -729,6 +769,17 @@ app.put('/api/farmer/inventory/:id', async (req, res) => {
     if (quantity === undefined) {
       return res.status(400).json({ success: false, message: 'quantity is required' });
     }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    if (harvest_date && harvest_date > todayStr) {
+      return res.status(400).json({ success: false, message: 'Harvest date cannot be greater than today' });
+    }
+
+    if (expiry_date && expiry_date <= todayStr) {
+      return res.status(400).json({ success: false, message: 'Expiry date must be greater than today' });
+    }
+
     connection = await pool.getConnection();
     await connection.query(
       `UPDATE farmer_inventory SET quantity=?, harvest_date=?, expiry_date=? WHERE id=?`,
@@ -1016,22 +1067,51 @@ app.get('/api/admin/farmers', async (req, res) => {
 });
 
 /**
- * POST /api/admin/notifications  – send a message/notification to a farmer
+ * GET /api/admin/drivers
+ */
+app.get('/api/admin/drivers', async (req, res) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    const [rows] = await connection.query(`
+      SELECT id, name, email, phone, city, vehicle_type 
+      FROM driver 
+      ORDER BY name ASC
+    `);
+    res.json({ success: true, drivers: rows });
+  } catch (error) {
+    handleError(res, error, 'GET /api/admin/drivers');
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+/**
+ * POST /api/admin/notifications – send a message/notification to a farmer OR driver
  */
 app.post('/api/admin/notifications', async (req, res) => {
   let connection;
   try {
-    const { farmer_id, subject, message, is_urgent } = req.body;
-    if (!farmer_id || !subject || !message) {
-      return res.status(400).json({ success: false, message: 'farmer_id, subject and message are required' });
+    const { farmer_id, driver_id, subject, message, is_urgent } = req.body;
+    if ((!farmer_id && !driver_id) || !subject || !message) {
+      return res.status(400).json({ success: false, message: 'Recipient (farmer_id or driver_id), subject and message are required' });
     }
     connection = await pool.getConnection();
-    await connection.query(
-      `INSERT INTO farmer_notifications (farmer_id, subject, message, is_urgent)
-       VALUES (?, ?, ?, ?)`,
-      [farmer_id, subject, message, is_urgent !== false ? 1 : 0]
-    );
-    logger.info(`Admin sent notification to farmer ${farmer_id}: "${subject}"`);
+    
+    if (farmer_id) {
+      await connection.query(
+        `INSERT INTO farmer_notifications (farmer_id, subject, message, is_urgent) VALUES (?, ?, ?, ?)`,
+        [farmer_id, subject, message, is_urgent !== false ? 1 : 0]
+      );
+      logger.info(`Admin sent notification to farmer ${farmer_id}: "${subject}"`);
+    } else if (driver_id) {
+      await connection.query(
+        `INSERT INTO driver_notifications (driver_id, subject, message, is_urgent) VALUES (?, ?, ?, ?)`,
+        [driver_id, subject, message, is_urgent !== false ? 1 : 0]
+      );
+      logger.info(`Admin sent notification to driver ${driver_id}: "${subject}"`);
+    }
+    
     res.status(201).json({ success: true, message: 'Notification sent' });
   } catch (error) {
     handleError(res, error, 'POST /api/admin/notifications');
@@ -1076,6 +1156,89 @@ app.put('/api/farmer/notifications/:id/read', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     handleError(res, error, `PUT /api/farmer/notifications/${req.params.id}/read`);
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+/**
+ * GET /api/driver/notifications?driver_id=X
+ */
+app.get('/api/driver/notifications', async (req, res) => {
+  let connection;
+  try {
+    const { driver_id } = req.query;
+    connection = await pool.getConnection();
+    const [rows] = await connection.query(
+      `SELECT * FROM driver_notifications 
+       WHERE driver_id = ? 
+       ORDER BY created_at DESC`,
+      [driver_id]
+    );
+    const [unread] = await connection.query(
+      'SELECT COUNT(*) AS count FROM driver_notifications WHERE driver_id = ? AND is_read = 0',
+      [driver_id]
+    );
+    res.json({ success: true, notifications: rows, unreadCount: unread[0].count });
+  } catch (error) {
+    handleError(res, error, 'GET /api/driver/notifications');
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+/**
+ * PUT /api/driver/notifications/:id/read
+ */
+app.put('/api/driver/notifications/:id/read', async (req, res) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    await connection.query('UPDATE driver_notifications SET is_read = 1 WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (error) {
+    handleError(res, error, `PUT /api/driver/notifications/${req.params.id}/read`);
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+/**
+ * GET /api/farmer/sidebar-badges?farmer_id=X
+ */
+app.get('/api/farmer/sidebar-badges', async (req, res) => {
+  let connection;
+  try {
+    const { farmer_id } = req.query;
+    if (!farmer_id) return res.status(400).json({ success: false, message: 'farmer_id required' });
+    
+    connection = await pool.getConnection();
+    
+    // 1. Pending Sales (Orders with status 'Pending' or 'Processing' that involve this farmer)
+    // Actually let's just count 'Pending' for now to be consistent with admin.
+    const [sales] = await connection.query(
+      `SELECT COUNT(DISTINCT order_id) AS count 
+       FROM order_items 
+       JOIN orders ON orders.id = order_items.order_id
+       WHERE farmer_id = ? AND orders.status = 'Pending'`,
+      [farmer_id]
+    );
+    
+    // 2. New Reviews (Reviews for this farmer's products - let's say last 7 days)
+    const [reviews] = await connection.query(
+      `SELECT COUNT(*) AS count FROM product_reviews WHERE farmer_id = ? AND created_at > DATE_SUB(NOW(), INTERVAL 7 DAY)`,
+      [farmer_id]
+    );
+    
+    res.json({
+      success: true,
+      badges: {
+        sales: sales[0].count,
+        reviews: reviews[0].count
+      }
+    });
+  } catch (error) {
+    handleError(res, error, 'GET /api/farmer/sidebar-badges');
   } finally {
     if (connection) connection.release();
   }
@@ -1357,75 +1520,19 @@ app.put('/api/admin/reviews/deletion-requests/:id', async (req, res) => {
 // CHATBOT / DISPUTE ROUTES
 // ════════════════════════════════════════════════════════════════════════════
 
-// ── Gemini AI setup ──────────────────────────────────────────────────────────
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-let geminiClient = null;
+// ── Simple Chatbot Logic ───────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a friendly, concise customer support assistant for "Roots & Routes", a Sri Lankan agri-commerce platform that connects local farmers with customers.
-
-Your role:
-- Help customers with questions about their orders, deliveries, payments, refunds, product quality, and anything related to the platform.
-- Keep replies SHORT (2-4 sentences max), warm, and helpful.
-- If a customer has a complaint or serious issue, encourage them to click the "File a Complaint" button below the chat.
-- You can reference these features: My Orders (order tracking with status stepper), Products page (browse all farmer products), Cart (shopping), Reviews (post-delivery), and the Complaint form in this chat.
-- For refunds, cancellations, or serious issues, always recommend filing a complaint so admin can take action.
-- Do NOT make up information about specific orders. You do not have access to order data.
-- Respond in plain text only (no markdown symbols). Use a friendly emoji occasionally.
-- If asked something unrelated to the platform or shopping, politely redirect.`;
-
-if (GEMINI_API_KEY && GEMINI_API_KEY !== 'YOUR_GEMINI_API_KEY_HERE') {
-  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  // systemInstruction must go here on getGenerativeModel, NOT in startChat
-  geminiClient = genAI.getGenerativeModel({
-    model: 'gemini-1.5-flash',
-    systemInstruction: SYSTEM_PROMPT,
-    generationConfig: { maxOutputTokens: 300, temperature: 0.7 },
-  });
-  logger.info('Gemini AI model ready (gemini-1.5-flash)');
-} else {
-  logger.warn('GEMINI_API_KEY not set – chatbot will use fallback replies');
-}
-
-async function getGeminiReply(conversationHistory, userMessage) {
-  if (!geminiClient) {
-    // Fallback keyword matcher
-    const lower = userMessage.toLowerCase();
-    if (lower.includes('track') || lower.includes('order status')) return "You can track your order in the My Orders section. Click any order to see the live delivery status. 📦";
-    if (lower.includes('refund')) return "Refund requests are handled by our admin team. Please use the File a Complaint button below and include your order number. We will get back to you within 2-3 business days.";
-    if (lower.includes('payment')) return "For payment issues, check your order in My Orders. If the problem persists, please file a complaint and our team will investigate promptly. 💳";
-    if (lower.includes('quality') || lower.includes('damaged') || lower.includes('wrong item')) return "We are sorry to hear that! Please file a complaint using the button below, include your order number and a description, and we will resolve it immediately. 🙏";
-    if (lower.includes('delivery') || lower.includes('delay') || lower.includes('driver')) return "Your driver updates the delivery status in real-time in My Orders. For significant delays, please file a complaint and we will follow up with the driver.";
-    if (lower.includes('cancel')) return "Order cancellations are possible before the driver picks up your order. Please file a complaint with your order number and our team will check if it is still possible.";
-    if (lower.includes('hello') || lower.includes('hi') || lower.includes('hey')) return "Hello! 👋 How can I help you today? Ask me anything about your orders, products, delivery, payments or refunds!";
-    return "I am not sure about that. Could you provide more details? Or you can file a complaint below and our admin team will help you directly. 😊";
-  }
-
-  try {
-    // Build alternating user/model history for Gemini (must start with user role)
-    // Skip bot-only messages at the start (the greeting) and only include
-    // pairs where customer and bot have exchanged messages
-    const history = [];
-    for (const m of conversationHistory) {
-      if (m.sender_type === 'customer') {
-        history.push({ role: 'user',  parts: [{ text: m.message }] });
-      } else if ((m.sender_type === 'bot' || m.sender_type === 'admin') && history.length > 0) {
-        // Only add model turn if there's already a user turn before it
-        history.push({ role: 'model', parts: [{ text: m.message }] });
-      }
-      // skip bot messages before any user message (e.g. greeting)
-    }
-
-    const chat = geminiClient.startChat({ history });
-    const result = await chat.sendMessage(userMessage);
-    return result.response.text();
-  } catch (err) {
-    logger.error('Gemini API error', { error: err.message });
-    // 429 = quota/rate-limit: give a friendlier message so the bug is clear
-    if (err.status === 429) {
-      return "I'm a little busy right now (rate limit). Please wait a few seconds and try again! 🙏";
-    }
-    return "I am having a little trouble right now. Please try again in a moment, or file a complaint below and our team will help you directly. 😊";
-  }
+function getSimpleBotReply(userMessage) {
+  const lower = userMessage.toLowerCase();
+  if (lower.includes('track') || lower.includes('order status')) return "You can track your order in the My Orders section. Click any order to see the live delivery status. 📦";
+  if (lower.includes('refund')) return "Refund requests are handled by our admin team. Please use the File a Complaint button below and include your order number. We will get back to you within 2-3 business days.";
+  if (lower.includes('payment')) return "For payment issues, check your order in My Orders. If the problem persists, please file a complaint and our team will investigate promptly. 💳";
+  if (lower.includes('quality') || lower.includes('damaged') || lower.includes('wrong item')) return "We are sorry to hear that! Please file a complaint using the button below, include your order number and a description, and we will resolve it immediately. 🙏";
+  if (lower.includes('delivery') || lower.includes('delay') || lower.includes('driver')) return "Your driver updates the delivery status in real-time in My Orders. For significant delays, please file a complaint and we will follow up with the driver.";
+  if (lower.includes('cancel')) return "Order cancellations are possible before the driver picks up your order. Please file a complaint with your order number and our team will check if it is still possible.";
+  if (lower.includes('hello') || lower.includes('hi') || lower.includes('hey')) return "Hello! 👋 How can I help you today? Ask me anything about your orders, products, delivery, payments or refunds!";
+  
+  return "I am not sure about that. Could you provide more details? Or you can file a complaint below and our admin team will help you directly. 😊";
 }
 
 
@@ -1483,8 +1590,8 @@ app.post('/api/chat/message', async (req, res) => {
       [session_id, message.trim()]
     );
 
-    // Generate Gemini reply (uses history context)
-    const botReply = await getGeminiReply(history, message.trim());
+    // Generate simple local reply
+    const botReply = getSimpleBotReply(message.trim());
 
     await connection.query(
       `INSERT INTO chat_messages (session_id, sender_type, message) VALUES (?, 'bot', ?)`,
@@ -1550,6 +1657,38 @@ app.get('/api/chat/sessions/:sessionId/messages', async (req, res) => {
     res.json({ success: true, messages });
   } catch (error) {
     handleError(res, error, `GET /api/chat/sessions/${req.params.sessionId}/messages`);
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+/**
+ * GET /api/admin/sidebar-badges – returns counts for sidebar badges
+ */
+app.get('/api/admin/sidebar-badges', async (req, res) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // 1. Pending Orders
+    const [orders] = await connection.query("SELECT COUNT(*) AS count FROM orders WHERE status = 'Pending'");
+    
+    // 2. Open Disputes (is_complaint = 1 and status = 'Open')
+    const [disputes] = await connection.query("SELECT COUNT(*) AS count FROM chat_sessions WHERE is_complaint = 1 AND status = 'Open'");
+    
+    // 3. Pending Review Deletion Requests
+    const [reviews] = await connection.query("SELECT COUNT(*) AS count FROM review_deletion_requests WHERE status = 'Pending'");
+    
+    res.json({
+      success: true,
+      badges: {
+        orders: orders[0].count,
+        disputes: disputes[0].count,
+        reviews: reviews[0].count
+      }
+    });
+  } catch (error) {
+    handleError(res, error, 'GET /api/admin/sidebar-badges');
   } finally {
     if (connection) connection.release();
   }
@@ -1720,37 +1859,90 @@ app.get('/api/admin/analytics', async (req, res) => {
   try {
     connection = await pool.getConnection();
 
-    // ── KPI counts ─────────────────────────────────────────────────────
+    // ── KPI counts (Current 30 Days) ─────────────────────────────────────────
+    const [[currentStats]] = await connection.query(
+      `SELECT
+         COALESCE(SUM(total_amount), 0) AS totalRevenue,
+         COUNT(*) AS totalOrders
+       FROM orders
+       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`
+    );
+
+    const [[prevStats]] = await connection.query(
+      `SELECT
+         COALESCE(SUM(total_amount), 0) AS totalRevenue,
+         COUNT(*) AS totalOrders
+       FROM orders
+       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 60 DAY)
+         AND created_at <  DATE_SUB(NOW(), INTERVAL 30 DAY)`
+    );
+
+    const [[newUserCount]] = await connection.query(
+      `SELECT COUNT(*) AS count FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`
+    );
+    const [[prevUserCount]] = await connection.query(
+      `SELECT COUNT(*) AS count FROM users
+       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 60 DAY)
+         AND created_at <  DATE_SUB(NOW(), INTERVAL 30 DAY)`
+    );
+
+    const calcTrend = (curr, prev) => {
+      if (prev === 0) return curr > 0 ? '+100%' : '0%';
+      const diff = ((curr - prev) / prev) * 100;
+      return (diff >= 0 ? '+' : '') + diff.toFixed(0) + '%';
+    };
+
+    const avgOrderValue = currentStats.totalOrders > 0 ? (currentStats.totalRevenue / currentStats.totalOrders) : 0;
+    const prevAvgOrderValue = prevStats.totalOrders > 0 ? (prevStats.totalRevenue / prevStats.totalOrders) : 0;
+
+    // ── Monthly Revenue (Last 12 Months) ──────────────────────────────────
+    const [monthlyRevenue] = await connection.query(
+      `SELECT
+         DATE_FORMAT(created_at, '%b') AS month,
+         COALESCE(SUM(total_amount), 0) AS revenue,
+         DATE_FORMAT(created_at, '%Y-%m') AS yearMonth
+       FROM orders
+       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+       GROUP BY yearMonth, month
+       ORDER BY yearMonth ASC`
+    );
+
+    // ── Top Categories (Percentages) ─────────────────────────────────────
+    const [categoryStats] = await connection.query(
+      `SELECT fp.category AS name, SUM(oi.subtotal) AS value
+       FROM order_items oi
+       JOIN farmer_products fp ON fp.id = oi.product_id
+       GROUP BY fp.category
+       ORDER BY value DESC`
+    );
+    const totalCatValue = categoryStats.reduce((acc, c) => acc + Number(c.value), 0);
+    const topCategories = categoryStats.map(c => ({
+      name: c.name,
+      pct: totalCatValue > 0 ? Math.round((Number(c.value) / totalCatValue) * 100) : 0
+    })).slice(0, 4);
+
+    // ── Original Dashboard Data (Backward Compatibility) ────────────────
     const [[userCounts]] = await connection.query(
       `SELECT
          (SELECT COUNT(*) FROM users)   AS customers,
          (SELECT COUNT(*) FROM farmer)  AS farmers,
-         (SELECT COUNT(*) FROM driver)  AS drivers,
-         (SELECT COUNT(*) FROM admin)   AS admins`
+         (SELECT COUNT(*) FROM driver)  AS drivers`
     );
-
-    const [[orderStats]] = await connection.query(
+    const [[orderStatsTotal]] = await connection.query(
       `SELECT COUNT(*) AS totalOrders, COALESCE(SUM(total_amount),0) AS totalRevenue FROM orders`
     );
-
-    // ── Role distribution (pie chart) ───────────────────────────────────
     const roleData = [
       { name: 'Customers', value: Number(userCounts.customers) },
       { name: 'Farmers',   value: Number(userCounts.farmers) },
       { name: 'Drivers',   value: Number(userCounts.drivers) },
     ];
-
-    // ── Top 5 selling products (bar chart) ─────────────────────────────
     const [topProducts] = await connection.query(
       `SELECT fp.name, COUNT(oi.id) AS sales
        FROM order_items oi
        JOIN farmer_products fp ON fp.id = oi.product_id
        GROUP BY oi.product_id, fp.name
-       ORDER BY sales DESC
-       LIMIT 5`
+       ORDER BY sales DESC LIMIT 5`
     );
-
-    // ── Orders per category (bar chart) ────────────────────────────────
     const [categoryOrders] = await connection.query(
       `SELECT fp.category AS name, COUNT(oi.id) AS orders
        FROM order_items oi
@@ -1758,42 +1950,65 @@ app.get('/api/admin/analytics', async (req, res) => {
        GROUP BY fp.category
        ORDER BY orders DESC`
     );
-
-    // ── Revenue by weekday (line chart, last 7 days) ─────────────────
     const [revenueByDay] = await connection.query(
       `SELECT DATE_FORMAT(created_at, '%a') AS name,
-              COALESCE(SUM(total_amount), 0) AS revenue
+              COALESCE(SUM(total_amount), 0) AS revenue,
+              DATE(created_at) AS orderDate
        FROM orders
        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-       GROUP BY DATE(created_at), name
-       ORDER BY DATE(created_at) ASC`
+       GROUP BY orderDate, name
+       ORDER BY orderDate ASC`
     );
-
-    // ── Order status breakdown ─────────────────────────────────────────
     const [statusRows] = await connection.query(
       `SELECT status, COUNT(*) AS count FROM orders GROUP BY status`
     );
-
-    // ── Recent orders (table) ─────────────────────────────────────────
     const [recentOrders] = await connection.query(
-      `SELECT o.id, o.status, o.total_amount, o.created_at,
-              u.name AS customer_name
-       FROM orders o
-       JOIN users u ON u.id = o.customer_id
-       ORDER BY o.created_at DESC
-       LIMIT 5`
+      `SELECT o.id, o.status, o.total_amount, o.created_at, u.name AS customer_name
+       FROM orders o JOIN users u ON u.id = o.customer_id
+       ORDER BY o.created_at DESC LIMIT 5`
     );
 
     logger.info('Admin analytics fetched');
     res.json({
       success: true,
+      // New fields for AnalyticsReports.jsx
+      summary: [
+        {
+          label: 'Total Revenue',
+          value: `LKR ${Number(currentStats.totalRevenue).toLocaleString()}`,
+          trend: calcTrend(currentStats.totalRevenue, prevStats.totalRevenue),
+          up: currentStats.totalRevenue >= prevStats.totalRevenue
+        },
+        {
+          label: 'New Users',
+          value: newUserCount.count.toString(),
+          trend: calcTrend(newUserCount.count, prevUserCount.count),
+          up: newUserCount.count >= prevUserCount.count
+        },
+        {
+          label: 'Orders Placed',
+          value: currentStats.totalOrders.toString(),
+          trend: calcTrend(currentStats.totalOrders, prevStats.totalOrders),
+          up: currentStats.totalOrders >= prevStats.totalOrders
+        },
+        {
+          label: 'Avg. Order Value',
+          value: `LKR ${Math.round(avgOrderValue).toLocaleString()}`,
+          trend: calcTrend(avgOrderValue, prevAvgOrderValue),
+          up: avgOrderValue >= prevAvgOrderValue
+        }
+      ],
+      monthlyRevenue: monthlyRevenue.map(m => ({ label: m.month, value: Number(m.revenue) })),
+      topCategories,
+
+      // Old fields for AdminDashboard.jsx
       kpi: {
         totalUsers: Number(userCounts.customers) + Number(userCounts.farmers) + Number(userCounts.drivers),
         customers: Number(userCounts.customers),
         farmers: Number(userCounts.farmers),
         drivers: Number(userCounts.drivers),
-        totalOrders: Number(orderStats.totalOrders),
-        totalRevenue: Number(orderStats.totalRevenue),
+        totalOrders: Number(orderStatsTotal.totalOrders),
+        totalRevenue: Number(orderStatsTotal.totalRevenue),
       },
       roleData,
       topProducts: topProducts.map(r => ({ name: r.name, sales: Number(r.sales) })),
@@ -1829,7 +2044,7 @@ app.get('/api/customer/profile', async (req, res) => {
     if (!id) return res.status(400).json({ success: false, message: 'id is required' });
     connection = await pool.getConnection();
     const [rows] = await connection.query(
-      `SELECT id, name, email, phone, city, created_at FROM users WHERE id = ?`, [id]
+      `SELECT id, name, email, phone, city, address, created_at FROM users WHERE id = ?`, [req.query.id]
     );
     if (!rows.length) return res.status(404).json({ success: false, message: 'User not found' });
     res.json({ success: true, user: rows[0] });
@@ -1847,22 +2062,70 @@ app.get('/api/customer/profile', async (req, res) => {
 app.put('/api/customer/profile', async (req, res) => {
   let connection;
   try {
-    const { id, name, phone, city } = req.body;
+    const { id, name, phone, city, address } = req.body;
     if (!id || !name || !phone) {
       return res.status(400).json({ success: false, message: 'id, name and phone are required' });
     }
     connection = await pool.getConnection();
     await connection.query(
-      `UPDATE users SET name = ?, phone = ?, city = ? WHERE id = ?`,
-      [name.trim(), phone.trim(), city?.trim() || null, id]
+      `UPDATE users SET name = ?, phone = ?, city = ?, address = ? WHERE id = ?`,
+      [name.trim(), phone.trim(), city?.trim() || null, address?.trim() || null, id]
     );
     const [rows] = await connection.query(
-      `SELECT id, name, email, phone, city FROM users WHERE id = ?`, [id]
+      `SELECT id, name, email, phone, city, address FROM users WHERE id = ?`, [id]
     );
     logger.info(`Customer #${id} updated profile`);
     res.json({ success: true, user: rows[0] });
   } catch (error) {
     handleError(res, error, 'PUT /api/customer/profile');
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+/**
+ * GET /api/farmer/profile?id=X  – fetch a farmer's own profile
+ */
+app.get('/api/farmer/profile', async (req, res) => {
+  let connection;
+  try {
+    if (!req.query.id) return res.status(400).json({ success: false, message: 'Missing farmer id' });
+    connection = await pool.getConnection();
+    const [rows] = await connection.query(
+      `SELECT id, name, email, phone, address, created_at FROM farmer WHERE id = ?`, [req.query.id]
+    );
+    if (!rows.length) return res.status(404).json({ success: false, message: 'Farmer not found' });
+    res.json({ success: true, user: rows[0] });
+  } catch (error) {
+    handleError(res, error, 'GET /api/farmer/profile');
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+/**
+ * PUT /api/farmer/profile  – update a farmer's own profile
+ * Body: { id, name, phone, address }
+ */
+app.put('/api/farmer/profile', async (req, res) => {
+  let connection;
+  try {
+    const { id, name, phone, address } = req.body;
+    if (!id || !name || !phone) {
+      return res.status(400).json({ success: false, message: 'id, name and phone are required' });
+    }
+    connection = await pool.getConnection();
+    await connection.query(
+      `UPDATE farmer SET name = ?, phone = ?, address = ? WHERE id = ?`,
+      [name.trim(), phone.trim(), address?.trim() || null, id]
+    );
+    const [rows] = await connection.query(
+      `SELECT id, name, email, phone, address FROM farmer WHERE id = ?`, [id]
+    );
+    logger.info(`Farmer #${id} updated profile`);
+    res.json({ success: true, user: rows[0] });
+  } catch (error) {
+    handleError(res, error, 'PUT /api/farmer/profile');
   } finally {
     if (connection) connection.release();
   }
@@ -1903,20 +2166,20 @@ app.put('/api/admin/users/:role/:id', async (req, res) => {
   try {
     const table = ROLE_TO_TABLE[req.params.role];
     if (!table) return res.status(400).json({ success: false, message: 'Invalid role' });
-    const { name, email, phone, city, farmLocation, farmSize, cropsProduced, licenseNumber, vehicleNumber, vehicleType } = req.body;
+    const { name, email, phone, city, address, farmLocation, farmSize, cropsProduced, licenseNumber, vehicleNumber, vehicleType } = req.body;
     if (!name || !email || !phone) {
       return res.status(400).json({ success: false, message: 'name, email and phone are required' });
     }
     connection = await pool.getConnection();
     if (req.params.role === 'user') {
       await connection.query(
-        `UPDATE users SET name=?, email=?, phone=?, city=? WHERE id=?`,
-        [name, email, phone, city || null, req.params.id]
+        `UPDATE users SET name=?, email=?, phone=?, city=?, address=? WHERE id=?`,
+        [name, email, phone, city || null, address || null, req.params.id]
       );
     } else if (req.params.role === 'farmer') {
       await connection.query(
-        `UPDATE farmer SET name=?, email=?, phone=?, farm_location=?, farm_size=?, crops_produced=? WHERE id=?`,
-        [name, email, phone, farmLocation || null, farmSize || null, cropsProduced || null, req.params.id]
+        `UPDATE farmer SET name=?, email=?, phone=?, address=?, farm_location=?, farm_size=?, crops_produced=? WHERE id=?`,
+        [name, email, phone, address || null, farmLocation || null, farmSize || null, cropsProduced || null, req.params.id]
       );
     } else if (req.params.role === 'driver') {
       await connection.query(

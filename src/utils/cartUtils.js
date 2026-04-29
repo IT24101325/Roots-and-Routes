@@ -42,6 +42,7 @@ export function addToCart(product, qty = 1) {
       is_organic: product.is_organic,
       category: product.category,
       farmer_name: product.farmer_name,
+      image_url: product.image_url,
       maxQty: Number(product.quantity),
       quantity: qty,
     });

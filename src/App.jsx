@@ -18,9 +18,8 @@ import DisputeManagement from './pages/admin/DisputeManagement';
 import DeliveryManagement from './pages/admin/DeliveryManagement';
 import AnalyticsReports from './pages/admin/AnalyticsReports';
 import ReviewManagement from './pages/admin/ReviewManagement';
-import SystemSettings from './pages/admin/SystemSettings';
-import Notifications from './pages/admin/Notifications';
 import SellerContact from './pages/admin/SellerContact';
+import DriverContact from './pages/admin/DriverContact';
 
 // Farmer
 import FarmerLayout from './layouts/FarmerLayout';
@@ -30,6 +29,7 @@ import FarmerSales from './pages/farmer/FarmerSales';
 import FarmerNotifications from './pages/farmer/FarmerNotifications';
 import FarmerReviews from './pages/farmer/FarmerReviews';
 import FarmerInventory from './pages/farmer/FarmerInventory';
+import FarmerProfile from './pages/farmer/FarmerProfile';
 
 // Customer
 import CustomerLayout from './layouts/CustomerLayout';
@@ -46,7 +46,9 @@ import CustomerSupport from './pages/customer/CustomerSupport';
 // Driver
 import DriverLayout from './layouts/DriverLayout';
 import DriverDeliveries from './pages/driver/DriverDeliveries';
-import { DriverDashboard, DriverHistory, DriverVehicle, DriverProfile } from './pages/driver/DummyPages';
+import DriverHistory from './pages/driver/DriverHistory';
+import DriverNotifications from './pages/driver/DriverNotifications';
+import { DriverDashboard, DriverVehicle, DriverProfile } from './pages/driver/DummyPages';
 
 // Role Guard
 const RoleRoute = ({ children, allowedRole, user }) => {
@@ -96,12 +98,11 @@ function AppRoutes() {
         <Route path="orders" element={<OrderManagement />} />
         <Route path="payments" element={<PaymentManagement />} />
         <Route path="seller-contact" element={<SellerContact />} />
+        <Route path="driver-contact" element={<DriverContact />} />
         <Route path="disputes" element={<DisputeManagement />} />
         <Route path="deliveries" element={<DeliveryManagement />} />
         <Route path="analytics" element={<AnalyticsReports />} />
         <Route path="reviews" element={<ReviewManagement />} />
-        <Route path="settings" element={<SystemSettings />} />
-        <Route path="notifications" element={<Notifications />} />
       </Route>
 
       {/* Farmer Routes */}
@@ -113,6 +114,7 @@ function AppRoutes() {
         <Route path="inventory" element={<FarmerInventory />} />
         <Route path="reviews" element={<FarmerReviews />} />
         <Route path="notifications" element={<FarmerNotifications />} />
+        <Route path="profile" element={<FarmerProfile />} />
       </Route>
 
       {/* Customer Routes */}
@@ -131,12 +133,12 @@ function AppRoutes() {
 
       {/* Driver Routes */}
       <Route path="/driver" element={<RoleRoute allowedRole="driver" user={user}><DriverLayout /></RoleRoute>}>
-        <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<DriverDashboard />} />
+        <Route index element={<Navigate to="deliveries" replace />} />
         <Route path="deliveries" element={<DriverDeliveries />} />
         <Route path="history" element={<DriverHistory />} />
         <Route path="vehicle" element={<DriverVehicle />} />
         <Route path="profile" element={<DriverProfile />} />
+        <Route path="notifications" element={<DriverNotifications />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" />} />
